@@ -4,7 +4,7 @@ A machine-learning app that assesses a retail card transaction and estimates the
 probability that it is fraudulent. Enter a transaction's details — amount, recent
 activity, device, location, and risk flags — and get an instant verdict.
 
-**Live app:** _add your Streamlit Cloud link here_
+**Live app:** https://retail-fraud-detection-app.streamlit.app/
 
 ---
 
