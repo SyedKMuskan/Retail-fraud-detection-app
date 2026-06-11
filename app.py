@@ -5,10 +5,10 @@ Run locally:  streamlit run app.py
 import streamlit as st
 import pandas as pd
 import joblib
+from pathlib import Path
 
 st.set_page_config(page_title="FraudShield", page_icon="🛡️", layout="centered")
 
-# --- Black theme (works even without config.toml) ---
 st.markdown("""
 <style>
 .stApp { background-color: #000000; color: #f5f5f5; }
@@ -19,16 +19,27 @@ div[data-testid="stExpander"] { background-color:#0d0d0d; border:1px solid #222;
 </style>
 """, unsafe_allow_html=True)
 
+MODEL_PATH = Path(__file__).parent / "fraud_model.joblib"
+
 
 @st.cache_resource
 def load_model():
-    art = joblib.load("fraud_model.joblib")
+    if not MODEL_PATH.exists():
+        return None, None
+    art = joblib.load(MODEL_PATH)
     return art["model"], art["columns"]
 
 
 model, COLUMNS = load_model()
 
-# --- Heading (change this one line to rename the app) ---
+if model is None:
+    st.error(
+        "⚠️ Model file not found. "
+        "Run `python train_model.py` first to generate `fraud_model.joblib`."
+    )
+    st.stop()
+
+# --- Heading ---
 st.title("🛡️ FraudShield")
 st.write(
     "Enter a transaction's details and get an instant risk assessment. "
@@ -69,8 +80,10 @@ def build_features(raw: dict) -> pd.DataFrame:
              "multiple_transactions_short_time", "high_risk_device_flag", "velocity_flag"]
     df["risk_flag_count"] = df[flags].sum(axis=1)
     df["amount_x_frequency"] = df["transaction_amount"] * df["transaction_frequency_24h"]
-    df = pd.get_dummies(df)
-    df = df.reindex(columns=COLUMNS, fill_value=0)   # prevents column-mismatch crashes
+    # Match exact encoding used in train_model.py (same columns, drop_first=True)
+    df = pd.get_dummies(df, columns=["payment_method", "device_type", "location", "merchant_category"],
+                        drop_first=True)
+    df = df.reindex(columns=COLUMNS, fill_value=0)
     return df
 
 
@@ -91,10 +104,13 @@ if st.button("Check transaction", type="primary"):
         location=location,
         merchant_category=merchant_category,
     )
-    prob = float(model.predict_proba(build_features(raw))[0, 1])
-    st.metric("Fraud probability", f"{prob*100:.1f}%")
-    if prob >= 0.5:
-        st.error("⚠️ This transaction looks risky — we recommend reviewing or blocking it.")
-    else:
-        st.success("✅ Sit back and relax — this looks like a safe, genuine transaction.")
-    st.progress(prob)
+    try:
+        prob = float(model.predict_proba(build_features(raw))[0, 1])
+        st.metric("Fraud probability", f"{prob*100:.1f}%")
+        if prob >= 0.5:
+            st.error("⚠️ This transaction looks risky — we recommend reviewing or blocking it.")
+        else:
+            st.success("✅ Sit back and relax — this looks like a safe, genuine transaction.")
+        st.progress(prob)
+    except Exception as e:
+        st.error(f"Prediction failed: {e}")
